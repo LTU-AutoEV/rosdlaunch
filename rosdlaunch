@@ -1,0 +1,117 @@
+#!/bin/sh
+
+DIR=$(pwd)
+
+mkdir -p "${DIR}/dynamic_conf/"
+
+try_load()
+{
+    rosrun dynamic_reconfigure dynparam load "$1" "$2" &
+    PID=$!
+    (sleep 2 && kill -9 "$PID" 2>/dev/null) &
+    wait "$PID" 2>/dev/null
+}
+
+try_dump()
+{
+    rosrun dynamic_reconfigure dynparam dump "$1" "$2" &
+    PID=$!
+    (sleep 2 && kill -9 "$PID" 2>/dev/null) &
+    wait "$PID" 2>/dev/null
+}
+
+load_conf()
+{
+    echo "reading dconf..."
+    for file in $(find "./${DIR}/dynamic_conf/" -type f | grep '\.dconf$'); do
+	node=$(echo "$file" | sed 's/^.*\/dynamic_conf\(\/[a-zA-Z0-9_/]*\)\.dconf$/\1/')
+	echo "Reading dconf from ${file} for node $node..."
+	try_load "$node" "$file"
+    done
+    echo "done reading."
+}
+
+dump_conf()
+{
+    echo "dumping dconf..."
+    for node in $(rosrun dynamic_reconfigure dynparam list); do
+	file="${DIR}/dynamic_conf${node}.dconf"
+	echo "Dumping conf from node ${node} into $file..."
+	mkdir -p $(dirname "$file")
+	try_dump "$node" "${DIR}/dynamic_conf/${node}.dconf"
+    done
+    echo "done dumping."
+}
+
+signal_handler()
+{
+    trap - TERM INT
+    dump_conf
+    kill "$RPID"
+    sleep 10
+    if kill -0 "$RPID" 2>/dev/null; then
+        kill -9 "$RPID"
+    fi
+}
+
+launch_wrapper()
+{
+    echo "launching ros..."
+    set -m
+    roslaunch "$1" "$2" &
+    RPID=$!
+    set +m
+
+    trap 'kill $RPID && wait $RPID' TERM INT
+
+    sleep 5
+
+    if kill -0 "$RPID" 2>/dev/null; then
+	trap '' TERM INT
+	load_conf
+	trap signal_handler TERM INT
+    fi
+
+    while kill -0 "$RPID" 2>/dev/null; do
+	wait "$RPID"
+    done
+}
+
+printhelp()
+{
+    echo "Usage: launch.sh <launch|rawlaunch|load|dump>
+
+launch         launch drivesystem. Automatically load and dump
+               dynamic config variables.
+
+load           If the drivesystem is already running, manually
+               load dynamic config options.
+
+dump           If the drivesystem is already running, manually
+               save dynamic config options.
+"
+}
+
+if [ ! -z "$1" ]; then
+    if [ "$1" = "launch" ]; then
+	if [ -z "$2" ]; then
+	    echo "Node name or launch file not given" >&2
+	    printhelp
+	    exit 1
+	fi
+
+	launch_wrapper "$2" "$3"
+    elif [ "$1" = "load" ]; then
+	load_conf
+    elif [ "$1" = "dump" ]; then
+	dump_conf
+    else
+	echo "command "$1" not recognised." >&2
+	echo
+	printhelp
+    fi
+else
+    echo "No command given. recomended usage: \"launch.sh launch [package] <file.launch>\"" >&2
+    echo
+    printhelp
+fi
