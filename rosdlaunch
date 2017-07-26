@@ -23,7 +23,7 @@ try_dump()
 load_conf()
 {
     echo "reading dconf..."
-    for file in $(find "./${DIR}/dynamic_conf/" -type f | grep '\.dconf$'); do
+    for file in $(find "${DIR}/dynamic_conf/" -type f | grep '\.dconf$'); do
 	node=$(echo "$file" | sed 's/^.*\/dynamic_conf\(\/[a-zA-Z0-9_/]*\)\.dconf$/\1/')
 	echo "Reading dconf from ${file} for node $node..."
 	try_load "$node" "$file"
